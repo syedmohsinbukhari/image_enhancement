@@ -10,7 +10,6 @@ import numpy as np
 import cv2
 from os.path import join, isfile, isdir
 from os import getcwd, unlink, listdir, mkdir
-from random import shuffle
 from time import localtime, strftime
 from utils.layers import conv2d, conv2d_t, dense
 from utils.input_pipeline import get_img_data
@@ -75,6 +74,66 @@ class GAN:
                                                  var_list = self.G_vars)
         self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).\
                                 minimize(self.cost, var_list = self.G_vars)
+
+
+    def discriminator(self, x, scope, reuse=False):
+        if reuse:
+            tf.get_variable_scope().reuse_variables()
+
+        with tf.variable_scope(scope):
+            #Convolutional Layers
+            D_conv1 = conv2d(x, 16, 3, 'D_conv1', strides=2)
+            D_conv2 = conv2d(D_conv1, 32, 3, 'D_conv2', strides=2)
+            D_conv3 = conv2d(D_conv2, 64, 3, 'D_conv3', strides=2)
+            D_conv4 = conv2d(D_conv3, 128, 3, 'D_conv4', strides=2)
+            D_conv5 = conv2d(D_conv4, 256, 3, 'D_conv5')
+
+            #Flattening
+            D_pool5_flat = tf.layers.flatten(D_conv5)
+
+            #Output
+            D_dense = dense(inputs=D_pool5_flat, units=2048, name='D_dense')
+            D_logits = dense(inputs=D_dense, units=1, name='D_logits',
+                             activation=None)
+            D_probs = tf.nn.softmax(D_logits, name="D_probs")
+
+            return D_probs, D_logits
+
+
+    def generator(self, z):
+        ## Encoder
+        #Convolution Layers
+        G_conv1 = conv2d(z, 16, 3, 'G_conv1', strides=2)
+        G_conv2 = conv2d(G_conv1, 32, 3, 'G_conv2', strides=2)
+        G_conv3 = conv2d(G_conv2, 64, 3, 'G_conv3', strides=2)
+        G_conv4 = conv2d(G_conv3, 128, 3, 'G_conv4', strides=2)
+        G_conv5 = conv2d(G_conv4, 256, 3, 'G_conv5')
+
+        #Flattening
+        G_pool5_flat = tf.layers.flatten(G_conv5)
+
+        #Output
+        G_features = dense(inputs=G_pool5_flat, units=512, name='G_features')
+
+        ## Decoder
+        #Reshapping
+        flat_sz = int(IMG_DIM[0]*IMG_DIM[1]*256*(2**-8))
+        G_z_dev = dense(inputs=G_features, units=flat_sz, name='G_z_dev')
+
+        G_z_mat = tf.reshape(G_z_dev, tf.shape(G_conv5))
+        G_z_matrix = tf.nn.relu(G_z_mat, name='G_z_matrix')
+
+        #Transpose Convolutional Layers
+        G_conv_t_1 = conv2d_t(G_z_matrix, 256, 3, 'G_conv_t_1')
+        G_conv_t_2 = conv2d_t(G_conv_t_1, 128, 3, 'G_conv_t_2')
+        G_conv_t_3 = conv2d_t(G_conv_t_2, 64, 3, 'G_conv_t_3')
+        G_conv_t_4 = conv2d_t(G_conv_t_3, 32, 3, 'G_conv_t_4')
+        G_conv_t_5 = conv2d_t(G_conv_t_4, IMG_CHN, 3, 'G_conv_t_5', strides=1,
+                              activation=tf.nn.tanh)
+
+        G_pic = tf.divide(tf.add(G_conv_t_5, 1.0), 2.0)
+
+        return G_pic, G_features
 
 
     def train(self, epochs, tf_session):
@@ -172,66 +231,6 @@ class GAN:
                 output_img_path = join(output_path, str(cnt)+'.jpg')
                 cv2.imwrite(output_img_path, output_img_final)
                 cnt += 1
-
-
-    def discriminator(self, x, scope, reuse=False):
-        if reuse:
-            tf.get_variable_scope().reuse_variables()
-
-        with tf.variable_scope(scope):
-            #Convolutional Layers
-            D_conv1 = conv2d(x, 16, 3, 'D_conv1', strides=2)
-            D_conv2 = conv2d(D_conv1, 32, 3, 'D_conv2', strides=2)
-            D_conv3 = conv2d(D_conv2, 64, 3, 'D_conv3', strides=2)
-            D_conv4 = conv2d(D_conv3, 128, 3, 'D_conv4', strides=2)
-            D_conv5 = conv2d(D_conv4, 256, 3, 'D_conv5')
-
-            #Flattening
-            D_pool5_flat = tf.layers.flatten(D_conv5)
-
-            #Output
-            D_dense = dense(inputs=D_pool5_flat, units=2048, name='D_dense')
-            D_logits = dense(inputs=D_dense, units=1, name='D_logits',
-                             activation=None)
-            D_probs = tf.nn.softmax(D_logits, name="D_probs")
-
-            return D_probs, D_logits
-
-
-    def generator(self, z):
-        ## Encoder
-        #Convolution Layers
-        G_conv1 = conv2d(z, 16, 3, 'G_conv1', strides=2)
-        G_conv2 = conv2d(G_conv1, 32, 3, 'G_conv2', strides=2)
-        G_conv3 = conv2d(G_conv2, 64, 3, 'G_conv3', strides=2)
-        G_conv4 = conv2d(G_conv3, 128, 3, 'G_conv4', strides=2)
-        G_conv5 = conv2d(G_conv4, 256, 3, 'G_conv5')
-
-        #Flattening
-        G_pool5_flat = tf.layers.flatten(G_conv5)
-
-        #Output
-        G_features = dense(inputs=G_pool5_flat, units=512, name='G_features')
-
-        ## Decoder
-        #Reshapping
-        flat_sz = int(IMG_DIM[0]*IMG_DIM[1]*256*(2**-8))
-        G_z_dev = dense(inputs=G_features, units=flat_sz, name='G_z_dev')
-
-        G_z_mat = tf.reshape(G_z_dev, tf.shape(G_conv5))
-        G_z_matrix = tf.nn.relu(G_z_mat, name='G_z_matrix')
-
-        #Transpose Convolutional Layers
-        G_conv_t_1 = conv2d_t(G_z_matrix, 256, 3, 'G_conv_t_1')
-        G_conv_t_2 = conv2d_t(G_conv_t_1, 128, 3, 'G_conv_t_2')
-        G_conv_t_3 = conv2d_t(G_conv_t_2, 64, 3, 'G_conv_t_3')
-        G_conv_t_4 = conv2d_t(G_conv_t_3, 32, 3, 'G_conv_t_4')
-        G_conv_t_5 = conv2d_t(G_conv_t_4, IMG_CHN, 3, 'G_conv_t_5', strides=1,
-                              activation=tf.nn.tanh)
-
-        G_pic = tf.divide(tf.add(G_conv_t_5, 1.0), 2.0)
-
-        return G_pic, G_features
 
 
 
