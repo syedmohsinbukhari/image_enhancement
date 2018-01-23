@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Oct 31 10:16:00 2017
+Created on Sun Jan 14 21:05:00 2018
 
 @author: Syed Mohsin Bukhari
 """
@@ -12,46 +12,44 @@ from os.path import join, isfile, isdir
 from os import getcwd, unlink, listdir, mkdir
 from random import shuffle
 from time import localtime, strftime
+from utils import conv2d, conv2d_t, dense
 
-CV_IMG_TYPE = cv2.IMREAD_GRAYSCALE
-IMG_DIM = [128, 128, 1]
-IMG_SZ = IMG_DIM[0]*IMG_DIM[1]*IMG_DIM[2]
+CV_IMG_TYPE = cv2.IMREAD_COLOR
+#CV_IMG_TYPE = cv2.IMREAD_GRAYSCALE
+
+IMG_DIM = [128, 128]
+IMG_CHN = (2*CV_IMG_TYPE) + 1
+IMG_SZ = IMG_DIM[0]*IMG_DIM[1]*IMG_CHN
 
 class GAN:
-    
+
     def __init__(self):
         #Helper Attributes
         self.training_start_time = 0
-        
+
         #Defining Placeholders
-        inp_dim = [None]
+        inp_dim = [None, IMG_CHN]
         [inp_dim.append(i) for i in IMG_DIM]
         self.X = tf.placeholder(dtype=tf.float32, shape=inp_dim)
         self.Z = tf.placeholder(dtype=tf.float32, shape=inp_dim)
-        self.batch_size = 100
-        
+        self.batch_size = 128
+
         #Get Generator and Discriminator Outputs
-        self.G_z, self.G_z_mean, self.G_z_stddev = self.generator(self.Z)
+        self.G_z, self.G_z_feats = self.generator(self.Z)
         self.D_x, self.D_x_logit = self.discriminator(self.X, 'real')
         self.D_z, self.D_z_logit = self.discriminator(self.G_z, 'fake')
-        
+
         #Defining Loss Functions
-        self.latent_loss = 0.5 * tf.reduce_sum(tf.square(self.G_z_mean) + \
-                           tf.square(self.G_z_stddev) - \
-                           tf.log(tf.square(self.G_z_stddev) + 1e-8) - 1, 1)
-        
-        generated_flat = tf.reshape(self.G_z, \
-                                    [self.batch_size, IMG_DIM[0]*IMG_DIM[1]])
-        original_flat = tf.reshape(self.X, \
-                                    [self.batch_size, IMG_DIM[0]*IMG_DIM[1]])
+        generated_flat = tf.reshape(self.G_z, [self.batch_size, -1])
+        original_flat = tf.reshape(self.X, [self.batch_size, -1])
         self.generation_loss = -tf.reduce_sum(original_flat * tf.log(1e-8 + \
             generated_flat) + (1-original_flat) * tf.log(1e-8 + 1 - \
             generated_flat), 1)
-        self.cost = tf.reduce_mean(self.generation_loss + self.latent_loss)
-        
+        self.cost = tf.reduce_mean(self.generation_loss)
+
 #        self.D_loss=-tf.reduce_mean(tf.log(self.D_x)+tf.log(1.0 - self.D_z))
 #        self.G_loss=-tf.reduce_mean(tf.log(self.D_z))+self.latent_loss
-        
+
         # Alternative losses:
         # -------------------
         D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(\
@@ -61,75 +59,75 @@ class GAN:
         self.D_loss = D_loss_real + D_loss_fake
         self.G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(\
                 logits=self.D_z_logit, labels=tf.ones_like(self.D_z_logit)))
-        
+
         #Prepare variable lists
         t_vars = tf.trainable_variables()
         self.D_vars = [var for var in t_vars if 'D_' in var.name]
         self.G_vars = [var for var in t_vars if 'G_' in var.name]
-        
+
         #Define optimizers
-        self.D_optimizer = tf.train.AdamOptimizer(learning_rate=0.001).\
+        self.D_optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).\
                                                     minimize(self.D_loss, \
                                                  var_list = self.D_vars)
-        self.G_optimizer = tf.train.AdamOptimizer(learning_rate=0.00001).\
+        self.G_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
                                                     minimize(self.G_loss, \
                                                  var_list = self.G_vars)
-        self.VAE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
+        self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).\
                                 minimize(self.cost, var_list = self.G_vars)
-        
-        
+
+
     def train(self, epochs, tf_session):
         self.training_start_time = strftime("%d%m%Y%H%M%S", localtime())
-        
+
         sess = tf_session
         sess.run(tf.global_variables_initializer())
-        
+
         batch_size = self.batch_size
-        
+
         for i in range(epochs):
-            
+
             data_cur = self.get_data(batch_size, 'training_file.txt')
-            
+
             for d in data_cur:
+#                for k in range(2):
+#                    _, D_loss_cur = sess.run([self.D_optimizer,
+#                                              self.D_loss], \
+#                                              feed_dict={self.X: d[1], \
+#                                                         self.Z: d[0]})
+#                for k in range(1):
+#                    _, G_loss_cur = sess.run([self.G_optimizer, \
+#                                              self.G_loss], \
+#                                              feed_dict={self.Z: d[0]})
                 for k in range(1):
-                    _, D_loss_cur = sess.run([self.D_optimizer, 
-                                              self.D_loss], \
-                                              feed_dict={self.X: d[1], \
-                                                         self.Z: d[0]})
-                for k in range(1):
-                    _, G_loss_cur = sess.run([self.G_optimizer, \
-                                              self.G_loss], \
-                                              feed_dict={self.Z: d[0]})
-                for k in range(5):
-                    _, VAE_loss_cur, generation_loss, latent_loss = \
-                                            sess.run([self.VAE_optimizer, \
-                                              self.cost,\
-                                              self.generation_loss,\
-                                              self.latent_loss], \
-                                              feed_dict={self.X: d[1], \
-                                                         self.Z: d[0]})
-                
+                    _, generation_loss =  sess.run([self.AE_optimizer, \
+                                          self.cost], \
+                                          feed_dict={self.X: d[1], \
+                                                     self.Z: d[0]})
+
             if i%1==0:
                 print('Epoch: {}'.format(i))
-                print('D loss: {0}'.format(D_loss_cur))
-                print('G_loss: {0}'.format(G_loss_cur))
-                print('mean_generation_loss: {0}'.format(np.mean(\
-                      generation_loss)))
-                print('mean_latent_loss: {0}'.format(np.mean(\
-                      latent_loss)))
-                print('VAE_loss: {0}'.format(VAE_loss_cur))
+#                print('D loss: {0}'.format(D_loss_cur))
+#                print('G_loss: {0}'.format(G_loss_cur))
+                print('mean_generation_loss: {0}'.format(np.mean(
+                        generation_loss)))
                 print()
-#                if (G_loss_cur<10.0):
-#                    break
-        
-                
+
+            self.test(sess, epoch='epoch_'+str(i))
+
+
     def test(self, tf_session, epoch='final'):
         sess = tf_session
         data_cur = self.get_data(self.batch_size, 'testing_file.txt')
-        
+
         #construct output path
         output_path = join(join(getcwd(), 'img_data'), 'output_img_data')
-        
+        output_path = join(output_path, self.training_start_time)
+        if not isdir(output_path):
+            mkdir(output_path)
+        output_path = join(output_path, epoch)
+        if not isdir(output_path):
+            mkdir(output_path)
+
         #delete all previous files
         for the_file in listdir(output_path):
             file_path = join(output_path, the_file)
@@ -138,312 +136,160 @@ class GAN:
                     unlink(file_path)
             except Exception as e:
                 print(e)
-        
-        if CV_IMG_TYPE == cv2.IMREAD_GRAYSCALE:
-            output_img = np.zeros((IMG_DIM[0],IMG_DIM[1]*3), \
-                                  dtype=np.float32)
-        elif CV_IMG_TYPE == cv2.IMREAD_COLOR:
-            output_img = np.zeros((IMG_DIM[0],IMG_DIM[1]*3,IMG_DIM[2]), \
-                                  dtype=np.float32)
-        else:
-            print('Incorrect image type')
-            return
-        
+
+        output_img = np.zeros((IMG_CHN, IMG_DIM[0],IMG_DIM[1]*3),
+                              dtype=np.float32)
+
         cnt = 0
         for d in data_cur:
             input_imgs = d[0]
             label_imgs = d[1]
-            pred_imgs = sess.run(self.G_z, \
-                                feed_dict={self.Z: input_imgs})
-            
+            pred_imgs = sess.run(self.G_z, feed_dict={self.Z: input_imgs})
+
             for i in range(self.batch_size):
                 input_img = input_imgs[i]
                 label_img = label_imgs[i]
-                
+
                 pred_img = pred_imgs[i]
                 pred_img = pred_img - pred_img.min()
                 pred_img = pred_img/pred_img.max()
-                
-                if CV_IMG_TYPE == cv2.IMREAD_GRAYSCALE:
-                    output_img[:,0:IMG_DIM[1]] = input_img[:,:,0]
-                    output_img[:,(IMG_DIM[1]):(2*IMG_DIM[1])] = \
-                                                            pred_img[:,:,0]
-                    output_img[:,(2*IMG_DIM[1]):(3*IMG_DIM[1])] = \
-                                                            label_img[:,:,0]
-                elif CV_IMG_TYPE == cv2.IMREAD_COLOR:
-                    output_img[:,0:IMG_DIM[1],:] = input_img
-                    output_img[:,(IMG_DIM[1]):(2*IMG_DIM[1]),:] = pred_img
-                    output_img[:,(2*IMG_DIM[1]):(3*IMG_DIM[1]),:] = label_img
-                else:
-                    return
-                
+
+                output_img[:,:,0:IMG_DIM[1]] = input_img
+                output_img[:,:,(IMG_DIM[1]):(2*IMG_DIM[1])] = pred_img
+                output_img[:,:,(2*IMG_DIM[1]):(3*IMG_DIM[1])] = label_img
+
                 output_img = output_img * 255.0
-                
+
+                if CV_IMG_TYPE == cv2.IMREAD_GRAYSCALE:
+                    output_img_final = output_img[0,:,:]
+                else:
+                    output_img_final = np.swapaxes(output_img, 0, 2)
+                    output_img_final = np.swapaxes(output_img_final, 0, 1)
+
                 output_img_path = join(output_path, str(cnt)+'.jpg')
-                cv2.imwrite(output_img_path, output_img)
+                cv2.imwrite(output_img_path, output_img_final)
                 cnt += 1
 
 
-    def discriminator(self, x, scope):
+    def discriminator(self, x, scope, reuse=False):
+        if reuse:
+            tf.get_variable_scope().reuse_variables()
+
         with tf.variable_scope(scope):
-            #Convolution Layer 1
-            D_conv1 = tf.layers.conv2d(inputs=x, filters=16, \
-                                       kernel_size=[5,5], padding='same', \
-                                       activation=tf.nn.relu, name='D_conv1')
-            D_pool1 = tf.layers.max_pooling2d(inputs=D_conv1, \
-                                              pool_size=[2,2], strides=2, \
-                                              name='D_pool1')
-            
-            #Convolution Layer 2
-            D_conv2 = tf.layers.conv2d(inputs=D_pool1, filters=32, \
-                                       kernel_size=[5,5], padding='same', \
-                                       activation=tf.nn.relu, name='D_conv2')
-            D_pool2 = tf.layers.max_pooling2d(inputs=D_conv2, \
-                                              pool_size=[2,2], strides=2, \
-                                              name='D_pool2')
-            
-            #Convolution Layer 3
-            D_conv3 = tf.layers.conv2d(inputs=D_pool2, filters=64, \
-                                       kernel_size=[5,5], padding='same', \
-                                       activation=tf.nn.relu, name='D_conv3')
-            D_pool3 = tf.layers.max_pooling2d(inputs=D_conv3, \
-                                              pool_size=[2,2], strides=2, \
-                                              name='D_pool3')
-            
-            #Convolution Layer 4
-            D_conv4 = tf.layers.conv2d(inputs=D_pool3, filters=128, \
-                                       kernel_size=[5,5], padding='same', \
-                                       activation=tf.nn.relu, name='D_conv4')
-            D_pool4 = tf.layers.max_pooling2d(inputs=D_conv4, \
-                                              pool_size=[2,2], strides=2, \
-                                              name='D_pool4')
-            
-            #Convolution Layer 5
-            D_conv5 = tf.layers.conv2d(inputs=D_pool4, filters=256, \
-                                       kernel_size=[5,5], padding='same', \
-                                       activation=tf.nn.relu, name='D_conv5')
-            D_pool5 = tf.layers.max_pooling2d(inputs=D_conv5, \
-                                              pool_size=[2,2], strides=2, \
-                                              name='D_pool5')
-            
+            #Convolutional Layers
+            D_conv1 = conv2d(x, 16, 3, 'D_conv1', strides=2)
+            D_conv2 = conv2d(D_conv1, 32, 3, 'D_conv2', strides=2)
+            D_conv3 = conv2d(D_conv2, 64, 3, 'D_conv3', strides=2)
+            D_conv4 = conv2d(D_conv3, 128, 3, 'D_conv4', strides=2)
+            D_conv5 = conv2d(D_conv4, 256, 3, 'D_conv5')
+
             #Flattening
-            D_pool5_flat = tf.reshape(D_pool5, [-1, \
-                           int((((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0)*\
-                               (((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0)\
-                               *256)])
-            
+            D_pool5_flat = tf.layers.flatten(D_conv5)
+
             #Output
-            D_dense = tf.layers.dense(inputs=D_pool5_flat, units=2048, \
-                                      activation=tf.nn.relu, name='D_dense')
-            D_dropout = tf.layers.dropout(inputs=D_dense, rate=0.4, \
-                                          training= True, name='D_dropout')
-            D_logits = tf.layers.dense(inputs=D_dropout, units=1, \
-                                       name='D_logits')
+            D_dense = dense(inputs=D_pool5_flat, units=2048, name='D_dense')
+            D_logits = dense(inputs=D_dense, units=1, name='D_logits',
+                             activation=None)
             D_probs = tf.nn.softmax(D_logits, name="D_probs")
-            
+
             return D_probs, D_logits
-        
-    
-    def encoder(self, z):
-        #Convolution Layer 1
-        G_conv1 = tf.layers.conv2d(inputs=z, filters=32, kernel_size=[5,5], \
-                                   padding='same', activation=tf.nn.relu, \
-                                   name='G_conv1')
-        G_pool1 = tf.layers.max_pooling2d(inputs=G_conv1, pool_size=[2,2], \
-                                          strides=2, name='G_pool1')
-        
-        #Convolution Layer 2
-        G_conv2 = tf.layers.conv2d(inputs=G_pool1, filters=64, \
-                                        kernel_size=[5,5], padding='same', \
-                                        activation=tf.nn.relu, name='G_conv2')
-        G_pool2 = tf.layers.max_pooling2d(inputs=G_conv2, \
-                                          pool_size=[2,2], strides=2, \
-                                          name='G_pool2')
-        
-        #Convolution Layer 3
-        G_conv3 = tf.layers.conv2d(inputs=G_pool2, filters=128, \
-                                        kernel_size=[5,5], padding='same', \
-                                        activation=tf.nn.relu, name='G_conv3')
-        G_pool3 = tf.layers.max_pooling2d(inputs=G_conv3, \
-                                          pool_size=[2,2], strides=2, \
-                                          name='G_pool3')
-        
-        #Convolution Layer 4
-        G_conv4 = tf.layers.conv2d(inputs=G_pool3, filters=256, \
-                                        kernel_size=[5,5], padding='same', \
-                                        activation=tf.nn.relu, name='G_conv4')
-        G_pool4 = tf.layers.max_pooling2d(inputs=G_conv4, \
-                                          pool_size=[2,2], strides=2, \
-                                          name='G_pool4')
-        
-        #Convolution Layer 5
-        G_conv5 = tf.layers.conv2d(inputs=G_pool4, filters=512, \
-                                        kernel_size=[5,5], padding='same', \
-                                        activation=tf.nn.relu, name='G_conv5')
-        G_pool5 = tf.layers.max_pooling2d(inputs=G_conv5, \
-                                          pool_size=[2,2], strides=2, \
-                                          name='G_pool5')
-        
-        #Flattening
-        flat_sz = int((((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0)*\
-                      (((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0)*512)
-        G_pool5_flat = tf.reshape(G_pool5, [-1, flat_sz])
-        
-        #Output
-        G_mean = tf.layers.dense(inputs=G_pool5_flat, units=512, \
-                                 activation=tf.nn.relu, name='G_mean')
-        G_stddev = tf.layers.dense(inputs=G_pool5_flat, units=512, 
-                                   activation=tf.nn.relu, name='G_stddev')
-        
-        return G_mean, G_stddev
-    
-    
-    def decoder(self, q):
-        #Reshapping
-        flat_sz = int((((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0)*\
-                      (((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0)*512)
-        G_z_develop = tf.layers.dense(inputs=q, units=flat_sz, \
-                                      activation=tf.nn.relu, \
-                                      name='G_z_matrix')
-        
-        inp_dim = [-1]
-        [inp_dim.append(i) for i in IMG_DIM]
-        G_z_matrix = tf.reshape(G_z_develop, [self.batch_size, \
-                                int(((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0), \
-                                int(((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0), \
-                                512])
-        G_z_matrix = tf.nn.relu(G_z_matrix)
-        
-        #Deconvolution Layer 1
-        G_filter1 = tf.get_variable('G_filter1', [5, 5, 256, 512], \
-                                    initializer=tf.random_normal_initializer(\
-                                                stddev=0.02))
-        G_deconv1 = tf.nn.conv2d_transpose(G_z_matrix, G_filter1, \
-                                           output_shape=[self.batch_size,\
-                                                int((((IMG_DIM[0]/2.0)/2.0)/\
-                                                     2.0)/2.0),\
-                                                int((((IMG_DIM[1]/2.0)/2.0)/\
-                                                     2.0)/2.0),\
-                                                256],\
-                                           strides = [1,2,2,1], \
-                                           name='G_deconv1')
-        G_deconv1 = tf.nn.relu(G_deconv1)
-        
-        #Deconvolution Layer 2
-        G_filter2 = tf.get_variable('G_filter2', [5, 5, 128, 256], \
-                                    initializer=tf.random_normal_initializer(\
-                                                stddev=0.02))
-        G_deconv2 = tf.nn.conv2d_transpose(G_deconv1, G_filter2, \
-                                           output_shape=[self.batch_size,\
-                                             int(((IMG_DIM[0]/2.0)/2.0)/2.0),\
-                                             int(((IMG_DIM[1]/2.0)/2.0)/2.0),\
-                                             128],\
-                                           strides = [1,2,2,1], \
-                                           name='G_deconv2')
-        
-        #Deconvolution Layer 3
-        G_filter3 = tf.get_variable('G_filter3', [5, 5, 64, 128], \
-                                    initializer=tf.random_normal_initializer(\
-                                                stddev=0.02))
-        G_deconv3 = tf.nn.conv2d_transpose(G_deconv2, G_filter3, \
-                                           output_shape=[self.batch_size,\
-                                             int((IMG_DIM[0]/2.0)/2.0),\
-                                             int((IMG_DIM[1]/2.0)/2.0), 64],\
-                                           strides = [1,2,2,1], \
-                                           name='G_deconv3')
-        
-        #Deconvolution Layer 4
-        G_filter4 = tf.get_variable('G_filter4', [5, 5, 32, 64], \
-                                    initializer=tf.random_normal_initializer(\
-                                                stddev=0.02))
-        G_deconv4 = tf.nn.conv2d_transpose(G_deconv3, G_filter4, \
-                                           output_shape=[self.batch_size,\
-                                             int(IMG_DIM[0]/2.0),\
-                                             int(IMG_DIM[1]/2.0), 32],\
-                                           strides = [1,2,2,1], \
-                                           name='G_deconv4')
-        
-        #Deconvolution Layer 5
-        G_filter5 = tf.get_variable('G_filter5', [5, 5, IMG_DIM[2], 32], \
-                                    initializer=tf.random_normal_initializer(\
-                                                stddev=0.02))
-        G_deconv5 = tf.nn.conv2d_transpose(G_deconv4, G_filter5, \
-                                           output_shape=[self.batch_size,\
-                                                         IMG_DIM[0],\
-                                                         IMG_DIM[1],\
-                                                         IMG_DIM[2]],\
-                                           strides = [1,2,2,1], \
-                                           name='G_deconv5')
-        
-        G_deconv5 = tf.nn.sigmoid(G_deconv5)
-        
-        return G_deconv5
-    
-    
+
+
     def generator(self, z):
-        z_mean, z_stddev = self.encoder(z)
-        samples = tf.random_normal(shape=[self.batch_size, 512], mean=0.0, \
-                                   stddev=1.0, dtype=tf.float32)
-        guessed_z = z_mean + (z_stddev * samples)
-        generated_images = self.decoder(guessed_z)
-        
-        return generated_images, z_mean, z_stddev
-        
-        
-    def xavier_init(self, size):
-        std_dev = 1.0/tf.sqrt(size[0]/2.0)
-        return tf.random_normal(shape=size, stddev=std_dev)
-        
-    
+        ## Encoder
+        #Convolution Layers
+        G_conv1 = conv2d(z, 16, 3, 'G_conv1', strides=2)
+        G_conv2 = conv2d(G_conv1, 32, 3, 'G_conv2', strides=2)
+        G_conv3 = conv2d(G_conv2, 64, 3, 'G_conv3', strides=2)
+        G_conv4 = conv2d(G_conv3, 128, 3, 'G_conv4', strides=2)
+        G_conv5 = conv2d(G_conv4, 256, 3, 'G_conv5')
+
+        #Flattening
+        G_pool5_flat = tf.layers.flatten(G_conv5)
+
+        #Output
+        G_features = dense(inputs=G_pool5_flat, units=512, name='G_features')
+
+        ## Decoder
+        #Reshapping
+        flat_sz = int(IMG_DIM[0]*IMG_DIM[1]*256*(2**-8))
+        G_z_dev = dense(inputs=G_features, units=flat_sz, name='G_z_dev')
+
+        G_z_mat = tf.reshape(G_z_dev, tf.shape(G_conv5))
+        G_z_matrix = tf.nn.relu(G_z_mat, name='G_z_matrix')
+
+        #Transpose Convolutional Layers
+        G_conv_t_1 = conv2d_t(G_z_matrix, 256, 3, 'G_conv_t_1')
+        G_conv_t_2 = conv2d_t(G_conv_t_1, 128, 3, 'G_conv_t_2')
+        G_conv_t_3 = conv2d_t(G_conv_t_2, 64, 3, 'G_conv_t_3')
+        G_conv_t_4 = conv2d_t(G_conv_t_3, 32, 3, 'G_conv_t_4')
+        G_conv_t_5 = conv2d_t(G_conv_t_4, IMG_CHN, 3, 'G_conv_t_5', strides=1,
+                              activation=tf.nn.tanh)
+
+        G_pic = tf.divide(tf.add(G_conv_t_5, 1.0), 2.0)
+
+        return G_pic, G_features
+
+
     def get_data(self, batch_size, file_name):
-        
+
         f_name = join(join(getcwd(), 'img_data'), file_name)
         f = open(f_name, 'r+')
-        
+
         f_rand = f.readlines()
         shuffle(f_rand)
-        
+
         count = 0
-        
-        inp_dim = [batch_size]
+
+        inp_dim = [batch_size, IMG_CHN]
         [inp_dim.append(i) for i in IMG_DIM]
         inp_dim = tuple(inp_dim)
-        
+
         input_imgs = np.empty(inp_dim)
         output_imgs = np.empty(inp_dim)
-            
+
         for line in f_rand:
             input_img, output_img = line.split(',')
             output_img = output_img.splitlines()[0]
-            
+
             input_img_arr = cv2.imread(input_img, CV_IMG_TYPE)
-            input_img_arr = np.reshape(input_img_arr, IMG_DIM)
             input_img_arr = input_img_arr/255.0
+
+            if CV_IMG_TYPE == cv2.IMREAD_GRAYSCALE:
+                input_img_arr = np.expand_dims(input_img_arr, axis=0)
+            else:
+                input_img_arr = np.swapaxes(input_img_arr, 0, 2)
+                input_img_arr = np.swapaxes(input_img_arr, 1, 2)
+
             output_img_arr = cv2.imread(output_img, CV_IMG_TYPE)
-            output_img_arr = np.reshape(output_img_arr, IMG_DIM)
             output_img_arr = output_img_arr/255.0
-            
+
+            if CV_IMG_TYPE == cv2.IMREAD_GRAYSCALE:
+                output_img_arr = np.expand_dims(output_img_arr, axis=0)
+            else:
+                output_img_arr = np.swapaxes(output_img_arr, 0, 2)
+                output_img_arr = np.swapaxes(output_img_arr, 1, 2)
+
             input_imgs[count%batch_size] = input_img_arr
             output_imgs[count%batch_size] = output_img_arr
-            
+
             count += 1
             if count%batch_size == 0:
                 yield input_imgs, output_imgs
-        
+
         yield input_imgs, output_imgs
-    
-    
-    
+
+
+
 def main():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth=True
-    sess = tf.Session(config=config)
-    
-    test_gan = GAN()
-    test_gan.train(epochs=100, tf_session=sess)
-    test_gan.test(sess)
-    
-    sess.close()
+
+    with tf.Session(config=config) as sess:
+      test_gan = GAN()
+      test_gan.train(epochs=50, tf_session=sess)
+      test_gan.test(sess)
+      sess.close()
 
 
 if __name__ == '__main__':
