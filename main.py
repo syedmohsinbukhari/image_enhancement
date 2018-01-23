@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Oct 31 09:37:07 2017
+Created on Tue Oct 31 10:16:00 2017
 
 @author: Syed Mohsin Bukhari
 """
@@ -8,17 +8,20 @@ Created on Tue Oct 31 09:37:07 2017
 import tensorflow as tf
 import numpy as np
 import cv2 as cv2
-from os.path import join, isfile
-from os import getcwd, unlink, listdir
+from os.path import join, isfile, isdir
+from os import getcwd, unlink, listdir, mkdir
 from random import shuffle
+from time import localtime, strftime
 
 CV_IMG_TYPE = cv2.IMREAD_GRAYSCALE
-IMG_DIM = [64, 64, 1]
+IMG_DIM = [128, 128, 1]
 IMG_SZ = IMG_DIM[0]*IMG_DIM[1]*IMG_DIM[2]
 
 class GAN:
     
     def __init__(self):
+        #Helper Attributes
+        self.training_start_time = 0
         
         #Defining Placeholders
         inp_dim = [None]
@@ -68,14 +71,16 @@ class GAN:
         self.D_optimizer = tf.train.AdamOptimizer(learning_rate=0.001).\
                                                     minimize(self.D_loss, \
                                                  var_list = self.D_vars)
-        self.G_optimizer = tf.train.AdamOptimizer(learning_rate=0.0001).\
+        self.G_optimizer = tf.train.AdamOptimizer(learning_rate=0.00001).\
                                                     minimize(self.G_loss, \
                                                  var_list = self.G_vars)
-        self.VAE_optimizer = tf.train.AdamOptimizer(learning_rate=0.0001).\
+        self.VAE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
                                 minimize(self.cost, var_list = self.G_vars)
         
         
     def train(self, epochs, tf_session):
+        self.training_start_time = strftime("%d%m%Y%H%M%S", localtime())
+        
         sess = tf_session
         sess.run(tf.global_variables_initializer())
         
@@ -105,7 +110,7 @@ class GAN:
                                                          self.Z: d[0]})
                 
             if i%1==0:
-                print('Iter: {}'.format(i))
+                print('Epoch: {}'.format(i))
                 print('D loss: {0}'.format(D_loss_cur))
                 print('G_loss: {0}'.format(G_loss_cur))
                 print('mean_generation_loss: {0}'.format(np.mean(\
@@ -118,10 +123,11 @@ class GAN:
 #                    break
         
                 
-    def test(self, tf_session):
+    def test(self, tf_session, epoch='final'):
         sess = tf_session
         data_cur = self.get_data(self.batch_size, 'testing_file.txt')
         
+        #construct output path
         output_path = join(join(getcwd(), 'img_data'), 'output_img_data')
         
         #delete all previous files
@@ -204,14 +210,30 @@ class GAN:
                                               pool_size=[2,2], strides=2, \
                                               name='D_pool3')
             
+            #Convolution Layer 4
+            D_conv4 = tf.layers.conv2d(inputs=D_pool3, filters=128, \
+                                       kernel_size=[5,5], padding='same', \
+                                       activation=tf.nn.relu, name='D_conv4')
+            D_pool4 = tf.layers.max_pooling2d(inputs=D_conv4, \
+                                              pool_size=[2,2], strides=2, \
+                                              name='D_pool4')
+            
+            #Convolution Layer 5
+            D_conv5 = tf.layers.conv2d(inputs=D_pool4, filters=256, \
+                                       kernel_size=[5,5], padding='same', \
+                                       activation=tf.nn.relu, name='D_conv5')
+            D_pool5 = tf.layers.max_pooling2d(inputs=D_conv5, \
+                                              pool_size=[2,2], strides=2, \
+                                              name='D_pool5')
+            
             #Flattening
-            D_pool3_flat = tf.reshape(D_pool3, [-1, \
-                           int((((IMG_DIM[0]/2.0)/2.0)/2.0)*\
-                               (((IMG_DIM[1]/2.0)/2.0)/2.0)\
-                               *64)])
+            D_pool5_flat = tf.reshape(D_pool5, [-1, \
+                           int((((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0)*\
+                               (((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0)\
+                               *256)])
             
             #Output
-            D_dense = tf.layers.dense(inputs=D_pool3_flat, units=1024, \
+            D_dense = tf.layers.dense(inputs=D_pool5_flat, units=2048, \
                                       activation=tf.nn.relu, name='D_dense')
             D_dropout = tf.layers.dropout(inputs=D_dense, rate=0.4, \
                                           training= True, name='D_dropout')
@@ -246,15 +268,31 @@ class GAN:
                                           pool_size=[2,2], strides=2, \
                                           name='G_pool3')
         
+        #Convolution Layer 4
+        G_conv4 = tf.layers.conv2d(inputs=G_pool3, filters=256, \
+                                        kernel_size=[5,5], padding='same', \
+                                        activation=tf.nn.relu, name='G_conv4')
+        G_pool4 = tf.layers.max_pooling2d(inputs=G_conv4, \
+                                          pool_size=[2,2], strides=2, \
+                                          name='G_pool4')
+        
+        #Convolution Layer 5
+        G_conv5 = tf.layers.conv2d(inputs=G_pool4, filters=512, \
+                                        kernel_size=[5,5], padding='same', \
+                                        activation=tf.nn.relu, name='G_conv5')
+        G_pool5 = tf.layers.max_pooling2d(inputs=G_conv5, \
+                                          pool_size=[2,2], strides=2, \
+                                          name='G_pool5')
+        
         #Flattening
-        flat_sz = int((((IMG_DIM[0]/2.0)/2.0)/2.0)*\
-                      (((IMG_DIM[1]/2.0)/2.0)/2.0)*128)
-        G_pool3_flat = tf.reshape(G_pool3, [-1, flat_sz])
+        flat_sz = int((((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0)*\
+                      (((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0)*512)
+        G_pool5_flat = tf.reshape(G_pool5, [-1, flat_sz])
         
         #Output
-        G_mean = tf.layers.dense(inputs=G_pool3_flat, units=128, \
+        G_mean = tf.layers.dense(inputs=G_pool5_flat, units=512, \
                                  activation=tf.nn.relu, name='G_mean')
-        G_stddev = tf.layers.dense(inputs=G_pool3_flat, units=128, 
+        G_stddev = tf.layers.dense(inputs=G_pool5_flat, units=512, 
                                    activation=tf.nn.relu, name='G_stddev')
         
         return G_mean, G_stddev
@@ -262,8 +300,8 @@ class GAN:
     
     def decoder(self, q):
         #Reshapping
-        flat_sz = int((((IMG_DIM[0]/2.0)/2.0)/2.0)*\
-                      (((IMG_DIM[1]/2.0)/2.0)/2.0)*128)
+        flat_sz = int((((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0)*\
+                      (((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0)*512)
         G_z_develop = tf.layers.dense(inputs=q, units=flat_sz, \
                                       activation=tf.nn.relu, \
                                       name='G_z_matrix')
@@ -271,55 +309,80 @@ class GAN:
         inp_dim = [-1]
         [inp_dim.append(i) for i in IMG_DIM]
         G_z_matrix = tf.reshape(G_z_develop, [self.batch_size, \
-                                int(((IMG_DIM[0]/2.0)/2.0)/2.0), \
-                                int(((IMG_DIM[1]/2.0)/2.0)/2.0), 128])
+                                int(((((IMG_DIM[0]/2.0)/2.0)/2.0)/2.0)/2.0), \
+                                int(((((IMG_DIM[1]/2.0)/2.0)/2.0)/2.0)/2.0), \
+                                512])
         G_z_matrix = tf.nn.relu(G_z_matrix)
         
         #Deconvolution Layer 1
-        G_filter1 = tf.get_variable('G_filter1', [5, 5, 64, 128], \
+        G_filter1 = tf.get_variable('G_filter1', [5, 5, 256, 512], \
                                     initializer=tf.random_normal_initializer(\
                                                 stddev=0.02))
         G_deconv1 = tf.nn.conv2d_transpose(G_z_matrix, G_filter1, \
                                            output_shape=[self.batch_size,\
-                                                int((IMG_DIM[0]/2.0)/2.0),\
-                                                int((IMG_DIM[1]/2.0)/2.0),\
-                                                64],\
+                                                int((((IMG_DIM[0]/2.0)/2.0)/\
+                                                     2.0)/2.0),\
+                                                int((((IMG_DIM[1]/2.0)/2.0)/\
+                                                     2.0)/2.0),\
+                                                256],\
                                            strides = [1,2,2,1], \
                                            name='G_deconv1')
         G_deconv1 = tf.nn.relu(G_deconv1)
         
         #Deconvolution Layer 2
-        G_filter2 = tf.get_variable('G_filter2', [5, 5, 32, 64], \
+        G_filter2 = tf.get_variable('G_filter2', [5, 5, 128, 256], \
                                     initializer=tf.random_normal_initializer(\
                                                 stddev=0.02))
         G_deconv2 = tf.nn.conv2d_transpose(G_deconv1, G_filter2, \
                                            output_shape=[self.batch_size,\
-                                                         int(IMG_DIM[0]/2.0),\
-                                                         int(IMG_DIM[1]/2.0),\
-                                                         32],\
+                                             int(((IMG_DIM[0]/2.0)/2.0)/2.0),\
+                                             int(((IMG_DIM[1]/2.0)/2.0)/2.0),\
+                                             128],\
                                            strides = [1,2,2,1], \
                                            name='G_deconv2')
         
         #Deconvolution Layer 3
-        G_filter3 = tf.get_variable('G_filter3', [5, 5, IMG_DIM[2], 32], \
+        G_filter3 = tf.get_variable('G_filter3', [5, 5, 64, 128], \
                                     initializer=tf.random_normal_initializer(\
                                                 stddev=0.02))
         G_deconv3 = tf.nn.conv2d_transpose(G_deconv2, G_filter3, \
+                                           output_shape=[self.batch_size,\
+                                             int((IMG_DIM[0]/2.0)/2.0),\
+                                             int((IMG_DIM[1]/2.0)/2.0), 64],\
+                                           strides = [1,2,2,1], \
+                                           name='G_deconv3')
+        
+        #Deconvolution Layer 4
+        G_filter4 = tf.get_variable('G_filter4', [5, 5, 32, 64], \
+                                    initializer=tf.random_normal_initializer(\
+                                                stddev=0.02))
+        G_deconv4 = tf.nn.conv2d_transpose(G_deconv3, G_filter4, \
+                                           output_shape=[self.batch_size,\
+                                             int(IMG_DIM[0]/2.0),\
+                                             int(IMG_DIM[1]/2.0), 32],\
+                                           strides = [1,2,2,1], \
+                                           name='G_deconv4')
+        
+        #Deconvolution Layer 5
+        G_filter5 = tf.get_variable('G_filter5', [5, 5, IMG_DIM[2], 32], \
+                                    initializer=tf.random_normal_initializer(\
+                                                stddev=0.02))
+        G_deconv5 = tf.nn.conv2d_transpose(G_deconv4, G_filter5, \
                                            output_shape=[self.batch_size,\
                                                          IMG_DIM[0],\
                                                          IMG_DIM[1],\
                                                          IMG_DIM[2]],\
                                            strides = [1,2,2,1], \
-                                           name='G_deconv3')
+                                           name='G_deconv5')
         
-        G_deconv3 = tf.nn.sigmoid(G_deconv3)
+        G_deconv5 = tf.nn.sigmoid(G_deconv5)
         
-        return G_deconv3
+        return G_deconv5
     
     
     def generator(self, z):
         z_mean, z_stddev = self.encoder(z)
-        samples = tf.random_normal(shape=[self.batch_size, 128], mean=0.0, \
+        samples = tf.random_normal(shape=[self.batch_size, 512], mean=0.0, \
                                    stddev=1.0, dtype=tf.float32)
         guessed_z = z_mean + (z_stddev * samples)
         generated_images = self.decoder(guessed_z)
@@ -377,7 +440,7 @@ def main():
     sess = tf.Session(config=config)
     
     test_gan = GAN()
-    test_gan.train(epochs=20, tf_session=sess)
+    test_gan.train(epochs=100, tf_session=sess)
     test_gan.test(sess)
     
     sess.close()
