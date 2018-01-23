@@ -7,12 +7,13 @@ Created on Sun Jan 14 21:05:00 2018
 
 import tensorflow as tf
 import numpy as np
-import cv2 as cv2
+import cv2
 from os.path import join, isfile, isdir
 from os import getcwd, unlink, listdir, mkdir
 from random import shuffle
 from time import localtime, strftime
-from utils import conv2d, conv2d_t, dense
+from utils.layers import conv2d, conv2d_t, dense
+from utils.input_pipeline import get_img_data
 
 CV_IMG_TYPE = cv2.IMREAD_COLOR
 #CV_IMG_TYPE = cv2.IMREAD_GRAYSCALE
@@ -86,7 +87,8 @@ class GAN:
 
         for i in range(epochs):
 
-            data_cur = self.get_data(batch_size, 'training_file.txt')
+            data_cur = get_img_data(batch_size, 'training_file.txt',
+                                    CV_IMG_TYPE, IMG_CHN, IMG_DIM)
 
             for d in data_cur:
 #                for k in range(2):
@@ -117,7 +119,8 @@ class GAN:
 
     def test(self, tf_session, epoch='final'):
         sess = tf_session
-        data_cur = self.get_data(self.batch_size, 'testing_file.txt')
+        data_cur = get_img_data(self.batch_size, 'testing_file.txt',
+                                CV_IMG_TYPE, IMG_CHN, IMG_DIM)
 
         #construct output path
         output_path = join(join(getcwd(), 'img_data'), 'output_img_data')
@@ -229,55 +232,6 @@ class GAN:
         G_pic = tf.divide(tf.add(G_conv_t_5, 1.0), 2.0)
 
         return G_pic, G_features
-
-
-    def get_data(self, batch_size, file_name):
-
-        f_name = join(join(getcwd(), 'img_data'), file_name)
-        f = open(f_name, 'r+')
-
-        f_rand = f.readlines()
-        shuffle(f_rand)
-
-        count = 0
-
-        inp_dim = [batch_size, IMG_CHN]
-        [inp_dim.append(i) for i in IMG_DIM]
-        inp_dim = tuple(inp_dim)
-
-        input_imgs = np.empty(inp_dim)
-        output_imgs = np.empty(inp_dim)
-
-        for line in f_rand:
-            input_img, output_img = line.split(',')
-            output_img = output_img.splitlines()[0]
-
-            input_img_arr = cv2.imread(input_img, CV_IMG_TYPE)
-            input_img_arr = input_img_arr/255.0
-
-            if CV_IMG_TYPE == cv2.IMREAD_GRAYSCALE:
-                input_img_arr = np.expand_dims(input_img_arr, axis=0)
-            else:
-                input_img_arr = np.swapaxes(input_img_arr, 0, 2)
-                input_img_arr = np.swapaxes(input_img_arr, 1, 2)
-
-            output_img_arr = cv2.imread(output_img, CV_IMG_TYPE)
-            output_img_arr = output_img_arr/255.0
-
-            if CV_IMG_TYPE == cv2.IMREAD_GRAYSCALE:
-                output_img_arr = np.expand_dims(output_img_arr, axis=0)
-            else:
-                output_img_arr = np.swapaxes(output_img_arr, 0, 2)
-                output_img_arr = np.swapaxes(output_img_arr, 1, 2)
-
-            input_imgs[count%batch_size] = input_img_arr
-            output_imgs[count%batch_size] = output_img_arr
-
-            count += 1
-            if count%batch_size == 0:
-                yield input_imgs, output_imgs
-
-        yield input_imgs, output_imgs
 
 
 
