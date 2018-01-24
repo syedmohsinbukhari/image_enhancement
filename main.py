@@ -11,8 +11,8 @@ import cv2
 from os.path import join, isfile, isdir
 from os import getcwd, unlink, listdir, mkdir
 from time import localtime, strftime, time
-from utils.layers import conv2d, conv2d_t, dense
-from utils.activation import tanh, lrelu, sigmoid, relu
+from utils.layers import conv, conv_t, dense, bn
+from utils.activations import lrelu, sigmoid, relu#, tanh
 from utils.input_pipeline import get_img_data
 
 CV_IMG_TYPE = cv2.IMREAD_COLOR
@@ -72,23 +72,21 @@ class GAN:
                                                      var_list = self.G_vars)
 
 
-    def discriminator(self, x, reuse=False):
-        with tf.variable_scope("discriminator", reuse=tf.AUTO_REUSE) as scope:
-            if reuse:
-                scope.reuse_variables()
+    def discriminator(self, x):
+        with tf.variable_scope("discriminator", reuse=tf.AUTO_REUSE):
 
             #Convolutional Layers
-            D_conv1 = lrelu(conv2d(x, 16, 3, 'D_conv1', strides=2))
-            D_conv2 = lrelu(conv2d(D_conv1, 32, 3, 'D_conv2', strides=2))
-            D_conv3 = lrelu(conv2d(D_conv2, 64, 3, 'D_conv3', strides=2))
-            D_conv4 = lrelu(conv2d(D_conv3, 128, 3, 'D_conv4', strides=2))
-            D_conv5 = lrelu(conv2d(D_conv4, 256, 3, 'D_conv5', strides=2))
+            D_conv1 = bn(lrelu(conv(bn(x), 16, 3, 'D_conv1')))
+            D_conv2 = bn(lrelu(conv(D_conv1, 32, 3, 'D_conv2')))
+            D_conv3 = bn(lrelu(conv(D_conv2, 64, 3, 'D_conv3')))
+            D_conv4 = bn(lrelu(conv(D_conv3, 128, 3, 'D_conv4')))
+            D_conv5 = bn(lrelu(conv(D_conv4, 256, 3, 'D_conv5')))
 
             #Flattening
             D_pool5_flat = tf.layers.flatten(D_conv5)
 
             #Output
-            D_dense = lrelu(dense(D_pool5_flat, 2048, 'D_dense'))
+            D_dense = bn(lrelu(dense(D_pool5_flat, 2048, 'D_dense')))
             D_prob = sigmoid(dense(D_dense, 1, 'D_prob'))
 
             return D_prob, D_conv5
@@ -98,17 +96,17 @@ class GAN:
         with tf.variable_scope("encoder"):
             ## Encoder
             #Convolution Layers
-            G_conv1 = lrelu(conv2d(z, 64, 5, 'G_conv1', strides=2))
-            G_conv2 = lrelu(conv2d(G_conv1, 128, 5, 'G_conv2', strides=2))
-            G_conv3 = lrelu(conv2d(G_conv2, 256, 5, 'G_conv3', strides=2))
-            G_conv4 = lrelu(conv2d(G_conv3, 512, 5, 'G_conv4', strides=2))
-            G_conv5 = lrelu(conv2d(G_conv4, 1024, 5, 'G_conv5', strides=2))
+            G_conv1 = bn(lrelu(conv(bn(z), 64, 5, 'G_conv1')))
+            G_conv2 = bn(lrelu(conv(G_conv1, 128, 5, 'G_conv2')))
+            G_conv3 = bn(lrelu(conv(G_conv2, 256, 5, 'G_conv3')))
+            G_conv4 = bn(lrelu(conv(G_conv3, 512, 5, 'G_conv4')))
+            G_conv5 = bn(lrelu(conv(G_conv4, 1024, 5, 'G_conv5')))
 
             #Transpose Convolutional Layer for projection
-            G_conv_t = lrelu(conv2d_t(G_conv5, 1, 3, 'G_conv_t', strides=3))
+            G_conv_t = conv_t(G_conv5, 1, 4, 'G_conv_t', padding='valid')
 
             #Reshaping
-            G_features = tf.layers.flatten(G_conv_t, 'G_features')
+            G_features = tf.layers.flatten(lrelu(G_conv_t), 'G_features')
 
             return G_features
 
@@ -117,21 +115,19 @@ class GAN:
         with tf.variable_scope("decoder"):
             ## Decoder
             #Reshapping
-            G_z_matrix = tf.reshape(q, [10, 10], name='G_z_matrix')
+            G_z_matrix = tf.reshape(q, [-1, 1, 10, 10], name='G_z_matrix')
 
             #Convolutional Layer for projection
-            G_conv = relu(conv2d(G_z_matrix, 1024, 3, 'G_conv', strides=3))
+            G_conv = relu(conv(G_z_matrix, 1024, 3, 'G_conv', strides=3))
 
             #Transpose Convolutional Layers
-            G_conv_t_1 = relu(conv2d_t(G_conv, 512, 5, 'G_conv_t_1'))
-            G_conv_t_2 = relu(conv2d_t(G_conv_t_1, 256, 5, 'G_conv_t_2'))
-            G_conv_t_3 = relu(conv2d_t(G_conv_t_2, 128, 5, 'G_conv_t_3'))
-            G_conv_t_4 = relu(conv2d_t(G_conv_t_3, 64, 5, 'G_conv_t_4'))
-            G_conv_t_5 = relu(conv2d_t(G_conv_t_4, IMG_CHN, 5, 'G_conv_t_5'))
+            G_conv_t_1 = bn(relu(conv_t(G_conv, 512, 5, 'G_conv_t_1')))
+            G_conv_t_2 = bn(relu(conv_t(G_conv_t_1, 256, 5, 'G_conv_t_2')))
+            G_conv_t_3 = bn(relu(conv_t(G_conv_t_2, 128, 5, 'G_conv_t_3')))
+            G_conv_t_4 = bn(relu(conv_t(G_conv_t_3, 64, 5, 'G_conv_t_4')))
+            G_conv_t_5 = sigmoid(conv_t(G_conv_t_4, IMG_CHN, 5, 'G_conv_t_5'))
 
-            G_pic = tanh(G_conv_t_5)
-
-            return G_pic
+            return G_conv_t_5
 
 
     def generator(self, z):
@@ -161,9 +157,10 @@ class GAN:
                 data_cur = get_img_data(batch_size, 'training_file.txt',
                                         CV_IMG_TYPE, IMG_CHN, IMG_DIM)
                 for d in data_cur:
-                    _, generation_loss = \
+                    _, generation_loss, extra = \
                                 sess.run([self.AE_optimizer,
-                                          self.cost],
+                                          self.cost,
+                                          self.extra],
                                          feed_dict={self.X: d[1],
                                                     self.Z: d[0]})
 
@@ -191,10 +188,11 @@ class GAN:
                     print('D_loss: {0}'.format(D_loss))
                     print('G_loss: {0}'.format(G_loss))
                 else:
+                    print('features: {0}'.format(np.mean(extra)))
                     print('mean_generation_loss: {0}'.format(generation_loss))
                 print()
 
-            self.test(sess, epoch='epoch_'+str(i))
+            self.test(sess, epoch='epoch_'+str(i+1))
 
 
     def test(self, tf_session, epoch='final'):
@@ -249,6 +247,8 @@ class GAN:
                     output_img_final = np.swapaxes(output_img, 0, 2)
                     output_img_final = np.swapaxes(output_img_final, 0, 1)
 
+#                output_img_final = (output_img_final+1.0)/2.0
+
                 output_img_path = join(output_path, str(cnt)+'.jpg')
                 cv2.imwrite(output_img_path, output_img_final)
                 cnt += 1
@@ -256,17 +256,21 @@ class GAN:
 
 
 def main():
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth=True
-
-    with tf.Session(config=config) as sess:
+    with tf.Session() as sess:
       test_gan = GAN(batch_size=64)
-      test_gan.train(epochs=200, tf_session=sess)
+      test_gan.train(epochs=30, tf_session=sess)
       sess.close()
 
 
 if __name__ == '__main__':
     main()
+
+
+
+#    config = tf.ConfigProto()
+#    config.gpu_options.allow_growth=True
+#
+#    with tf.Session(config=config) as sess:
 
 #        # Alternative losses:
 #        # -------------------

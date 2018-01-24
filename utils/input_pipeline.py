@@ -56,6 +56,8 @@ def get_img_data(batch_size, file_name, CV_IMG_TYPE, IMG_CHN, IMG_DIM):
 
         count += 1
         if count%batch_size == 0:
+#            input_imgs = (input_imgs*2.0)-1.0
+#            output_imgs = (output_imgs*2.0)-1.0
             yield input_imgs, output_imgs
 
     yield input_imgs, output_imgs

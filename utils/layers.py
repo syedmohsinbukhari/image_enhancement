@@ -8,7 +8,7 @@ Created on Tue Jan 23 15:13:52 2018
 
 import tensorflow as tf
 
-def conv2d(inputs, filters, kernel_size, name, strides=1, padding='same'):
+def conv(inputs, filters, kernel_size, name, strides=2, padding='same'):
     with tf.variable_scope(name):
         layer = tf.layers.conv2d(inputs=inputs,
                                  filters=filters,
@@ -18,7 +18,7 @@ def conv2d(inputs, filters, kernel_size, name, strides=1, padding='same'):
                                  data_format='channels_first')
         return layer
 
-def conv2d_t(inputs, filters, kernel_size, name, strides=2, padding='same'):
+def conv_t(inputs, filters, kernel_size, name, strides=2, padding='same'):
     with tf.variable_scope(name):
         layer = tf.layers.conv2d_transpose(inputs=inputs,
                                            filters=filters,
@@ -28,7 +28,7 @@ def conv2d_t(inputs, filters, kernel_size, name, strides=2, padding='same'):
                                            data_format='channels_first')
         return layer
 
-def max_pool2d(inputs, name, pool_size=2, strides=2, padding='same'):
+def max_pool(inputs, name, pool_size=2, strides=2, padding='same'):
     with tf.variable_scope(name):
         layer = tf.layers.max_pooling2d(inputs=inputs,
                                         pool_size=pool_size,
@@ -42,3 +42,6 @@ def dense(inputs, units, name):
         layer = tf.layers.dense(inputs=inputs,
                                 units=units)
         return layer
+
+def bn(x):
+    return tf.layers.batch_normalization(x)

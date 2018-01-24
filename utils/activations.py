@@ -11,7 +11,7 @@ import tensorflow as tf
 def relu(x):
     return tf.nn.relu(x)
 
-def lrele(x):
+def lrelu(x):
     return tf.nn.leaky_relu(x)
 
 def tanh(x):
