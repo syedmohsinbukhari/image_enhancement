@@ -12,6 +12,7 @@ from os.path import join, isfile, isdir
 from os import getcwd, unlink, listdir, mkdir
 from time import localtime, strftime, time
 from utils.layers import conv2d, conv2d_t, dense
+from utils.activation import tanh, lrelu, sigmoid, relu
 from utils.input_pipeline import get_img_data
 
 CV_IMG_TYPE = cv2.IMREAD_COLOR
@@ -56,14 +57,19 @@ class GAN:
         self.G_vars = [var for var in t_vars if 'G_' in var.name]
 
         #Define optimizers
-        self.D_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
-                                                    minimize(self.D_loss, \
-                                                 var_list = self.D_vars)
-        self.G_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
-                                                    minimize(self.G_loss, \
-                                                 var_list = self.G_vars)
-        self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
-                                minimize(self.cost, var_list = self.G_vars)
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            self.D_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
+                                                        minimize(self.D_loss,
+                                                     var_list = self.D_vars)
+
+            self.G_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
+                                                        minimize(self.G_loss,
+                                                     var_list = self.G_vars)
+
+            self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).\
+                                                        minimize(self.cost,
+                                                     var_list = self.G_vars)
 
 
     def discriminator(self, x, reuse=False):
@@ -72,57 +78,67 @@ class GAN:
                 scope.reuse_variables()
 
             #Convolutional Layers
-            D_conv1 = conv2d(x, 16, 3, 'D_conv1', strides=2)
-            D_conv2 = conv2d(D_conv1, 32, 3, 'D_conv2', strides=2)
-            D_conv3 = conv2d(D_conv2, 64, 3, 'D_conv3', strides=2)
-            D_conv4 = conv2d(D_conv3, 128, 3, 'D_conv4', strides=2)
-            D_conv5 = conv2d(D_conv4, 256, 3, 'D_conv5')
+            D_conv1 = lrelu(conv2d(x, 16, 3, 'D_conv1', strides=2))
+            D_conv2 = lrelu(conv2d(D_conv1, 32, 3, 'D_conv2', strides=2))
+            D_conv3 = lrelu(conv2d(D_conv2, 64, 3, 'D_conv3', strides=2))
+            D_conv4 = lrelu(conv2d(D_conv3, 128, 3, 'D_conv4', strides=2))
+            D_conv5 = lrelu(conv2d(D_conv4, 256, 3, 'D_conv5', strides=2))
 
             #Flattening
             D_pool5_flat = tf.layers.flatten(D_conv5)
 
             #Output
-            D_dense = dense(D_pool5_flat, 2048, 'D_dense')
-            D_prob = dense(D_dense, 1, 'D_prob', activation=tf.nn.sigmoid)
+            D_dense = lrelu(dense(D_pool5_flat, 2048, 'D_dense'))
+            D_prob = sigmoid(dense(D_dense, 1, 'D_prob'))
 
             return D_prob, D_conv5
 
 
-    def generator(self, z):
-        with tf.variable_scope("generator"):
+    def encoder(self, z):
+        with tf.variable_scope("encoder"):
             ## Encoder
             #Convolution Layers
-            G_conv1 = conv2d(z, 16, 3, 'G_conv1', strides=2)
-            G_conv2 = conv2d(G_conv1, 32, 3, 'G_conv2', strides=2)
-            G_conv3 = conv2d(G_conv2, 64, 3, 'G_conv3', strides=2)
-            G_conv4 = conv2d(G_conv3, 128, 3, 'G_conv4', strides=2)
-            G_conv5 = conv2d(G_conv4, 256, 3, 'G_conv5')
+            G_conv1 = lrelu(conv2d(z, 64, 5, 'G_conv1', strides=2))
+            G_conv2 = lrelu(conv2d(G_conv1, 128, 5, 'G_conv2', strides=2))
+            G_conv3 = lrelu(conv2d(G_conv2, 256, 5, 'G_conv3', strides=2))
+            G_conv4 = lrelu(conv2d(G_conv3, 512, 5, 'G_conv4', strides=2))
+            G_conv5 = lrelu(conv2d(G_conv4, 1024, 5, 'G_conv5', strides=2))
 
-            #Flattening
-            G_pool5_flat = tf.layers.flatten(G_conv5)
+            #Transpose Convolutional Layer for projection
+            G_conv_t = lrelu(conv2d_t(G_conv5, 1, 3, 'G_conv_t', strides=3))
 
-            #Output
-            G_features = dense(G_pool5_flat, 512, 'G_features')
+            #Reshaping
+            G_features = tf.layers.flatten(G_conv_t, 'G_features')
 
+            return G_features
+
+
+    def decoder(self, q):
+        with tf.variable_scope("decoder"):
             ## Decoder
             #Reshapping
-            flat_sz = int(IMG_DIM[0]*IMG_DIM[1]*256*(2**-8))
-            G_z_dev = dense(G_features, flat_sz, 'G_z_dev')
+            G_z_matrix = tf.reshape(q, [10, 10], name='G_z_matrix')
 
-            G_z_mat = tf.reshape(G_z_dev, tf.shape(G_conv5))
-            G_z_matrix = tf.nn.relu(G_z_mat, name='G_z_matrix')
+            #Convolutional Layer for projection
+            G_conv = relu(conv2d(G_z_matrix, 1024, 3, 'G_conv', strides=3))
 
             #Transpose Convolutional Layers
-            G_conv_t_1 = conv2d_t(G_z_matrix, 256, 3, 'G_conv_t_1')
-            G_conv_t_2 = conv2d_t(G_conv_t_1, 128, 3, 'G_conv_t_2')
-            G_conv_t_3 = conv2d_t(G_conv_t_2, 64, 3, 'G_conv_t_3')
-            G_conv_t_4 = conv2d_t(G_conv_t_3, 32, 3, 'G_conv_t_4')
-            G_conv_t_5 = conv2d_t(G_conv_t_4, IMG_CHN, 3, 'G_conv_t_5',
-                                  strides=1, activation=tf.nn.tanh)
+            G_conv_t_1 = relu(conv2d_t(G_conv, 512, 5, 'G_conv_t_1'))
+            G_conv_t_2 = relu(conv2d_t(G_conv_t_1, 256, 5, 'G_conv_t_2'))
+            G_conv_t_3 = relu(conv2d_t(G_conv_t_2, 128, 5, 'G_conv_t_3'))
+            G_conv_t_4 = relu(conv2d_t(G_conv_t_3, 64, 5, 'G_conv_t_4'))
+            G_conv_t_5 = relu(conv2d_t(G_conv_t_4, IMG_CHN, 5, 'G_conv_t_5'))
 
-            G_pic = tf.divide(tf.add(G_conv_t_5, 1.0), 2.0)
+            G_pic = tanh(G_conv_t_5)
 
-            return G_pic, G_features
+            return G_pic
+
+
+    def generator(self, z):
+        G_features = self.encoder(z)
+        G_pic = self.decoder(G_features)
+
+        return G_pic, G_features
 
 
     def train(self, epochs, tf_session):
@@ -134,13 +150,14 @@ class GAN:
         batch_size = self.batch_size
 
         epoch_verbosity = 1
+        autoencoder_epochs = 30
         for i in range(epochs):
             if i%epoch_verbosity==0:
                 print('Running epoch: {}'.format(i+1))
 
             start_time = time()
 
-            if i<10:
+            if i<autoencoder_epochs:
                 data_cur = get_img_data(batch_size, 'training_file.txt',
                                         CV_IMG_TYPE, IMG_CHN, IMG_DIM)
                 for d in data_cur:
@@ -150,7 +167,7 @@ class GAN:
                                          feed_dict={self.X: d[1],
                                                     self.Z: d[0]})
 
-            if i>=10:
+            else:
                 data_cur = get_img_data(batch_size, 'training_file.txt',
                                         CV_IMG_TYPE, IMG_CHN, IMG_DIM)
 
@@ -168,12 +185,12 @@ class GAN:
             time_taken = time()-start_time
             if i%epoch_verbosity==0:
                 print('Time Taken: {}'.format(time_taken))
-                if i>=10:
+                if i>=autoencoder_epochs:
                     print('D_x: {0}'.format(np.mean(D_x)))
                     print('D_z: {0}'.format(np.mean(D_z)))
                     print('D_loss: {0}'.format(D_loss))
                     print('G_loss: {0}'.format(G_loss))
-                if i<10:
+                else:
                     print('mean_generation_loss: {0}'.format(generation_loss))
                 print()
 
@@ -244,8 +261,7 @@ def main():
 
     with tf.Session(config=config) as sess:
       test_gan = GAN(batch_size=64)
-      test_gan.train(epochs=100, tf_session=sess)
-      test_gan.test(sess)
+      test_gan.train(epochs=200, tf_session=sess)
       sess.close()
 
 
