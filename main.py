@@ -167,7 +167,7 @@ class GAN:
                 print('Time Taken: {}'.format(time_taken))
                 print('D_x: {0}'.format(np.mean(D_x)))
                 print('D_z: {0}'.format(np.mean(D_z)))
-                print('D loss: {0}'.format(D_loss_cur))
+                print('D_loss: {0}'.format(D_loss_cur))
                 print('G_loss: {0}'.format(G_loss_cur))
                 print('mean_generation_loss: {0}'.format(np.mean(
                         generation_loss)))
