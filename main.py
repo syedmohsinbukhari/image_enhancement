@@ -10,7 +10,7 @@ import numpy as np
 import cv2
 from os.path import join, isfile, isdir
 from os import getcwd, unlink, listdir, mkdir
-from time import localtime, strftime
+from time import localtime, strftime, time
 from utils.layers import conv2d, conv2d_t, dense
 from utils.input_pipeline import get_img_data
 
@@ -23,7 +23,7 @@ IMG_SZ = IMG_DIM[0]*IMG_DIM[1]*IMG_CHN
 
 class GAN:
 
-    def __init__(self):
+    def __init__(self, batch_size = 64):
         #Helper Attributes
         self.training_start_time = 0
 
@@ -32,7 +32,7 @@ class GAN:
         [inp_dim.append(i) for i in IMG_DIM]
         self.X = tf.placeholder(dtype=tf.float32, shape=inp_dim)
         self.Z = tf.placeholder(dtype=tf.float32, shape=inp_dim)
-        self.batch_size = 128
+        self.batch_size = batch_size
 
         #Get Generator and Discriminator Outputs
         self.G_z, self.G_z_feats = self.generator(self.Z)
@@ -134,6 +134,7 @@ class GAN:
         batch_size = self.batch_size
 
         for i in range(epochs):
+            start_time = time()
 
             data_cur = get_img_data(batch_size, 'training_file.txt',
                                     CV_IMG_TYPE, IMG_CHN, IMG_DIM)
@@ -150,24 +151,26 @@ class GAN:
                                               self.G_loss],
                                              feed_dict={self.Z: d[0]})
 
-#                for k in range(1):
-#                    _, generation_loss =  sess.run([self.AE_optimizer, \
-#                                          self.cost], \
-#                                          feed_dict={self.X: d[1], \
-#                                                     self.Z: d[0]})
+                for k in range(1):
+                    _, generation_loss =  sess.run([self.AE_optimizer, \
+                                          self.cost], \
+                                          feed_dict={self.X: d[1], \
+                                                     self.Z: d[0]})
 
                 D_x, D_z = sess.run([self.D_x, self.D_z],
                                             feed_dict={self.X: d[1],
                                                        self.Z: d[0]})
 
+            time_taken = time()-start_time
             if i%1==0:
                 print('Epoch: {}'.format(i))
+                print('Time Taken: {}'.format(time_taken))
                 print('D_x: {0}'.format(np.mean(D_x)))
                 print('D_z: {0}'.format(np.mean(D_z)))
                 print('D loss: {0}'.format(D_loss_cur))
                 print('G_loss: {0}'.format(G_loss_cur))
-#                print('mean_generation_loss: {0}'.format(np.mean(
-#                        generation_loss)))
+                print('mean_generation_loss: {0}'.format(np.mean(
+                        generation_loss)))
                 print()
 
             self.test(sess, epoch='epoch_'+str(i))
@@ -236,7 +239,7 @@ def main():
     config.gpu_options.allow_growth=True
 
     with tf.Session(config=config) as sess:
-      test_gan = GAN()
+      test_gan = GAN(batch_size=64)
       test_gan.train(epochs=100, tf_session=sess)
       test_gan.test(sess)
       sess.close()
