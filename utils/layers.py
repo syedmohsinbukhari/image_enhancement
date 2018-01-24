@@ -15,10 +15,7 @@ def conv2d(inputs, filters, kernel_size, name, strides=1,
                                  kernel_size=kernel_size, padding='same',
                                  strides=strides,
                                  data_format='channels_first',
-                                 activation=activation#,
-#                                 kernel_initializer=
-#                                 tf.truncated_normal_initializer(stddev=0.2),
-#                                 bias_initializer=tf.constant_initializer(0.1)
+                                 activation=activation
                                  )
     return layer
 
@@ -28,12 +25,7 @@ def conv2d_t(inputs, filters, kernel_size, name, strides=2,
                                        kernel_size=kernel_size, name=name,
                                        strides=strides, padding='same',
                                        data_format='channels_first',
-                                       activation=activation,
-                                       kernel_initializer=
-                                       tf.truncated_normal_initializer(
-                                               stddev=0.2),
-                                       bias_initializer=
-                                       tf.constant_initializer(0.1))
+                                       activation=activation)
     return layer
 
 def max_pool2d(inputs, name, pool_size=2, strides=2):
@@ -44,8 +36,5 @@ def max_pool2d(inputs, name, pool_size=2, strides=2):
 
 def dense(inputs, units, name, activation=tf.nn.relu):
     layer = tf.layers.dense(inputs=inputs, units=units, name=name,
-                            activation=activation,
-                            kernel_initializer=
-                            tf.truncated_normal_initializer(stddev=0.2),
-                            bias_initializer=tf.constant_initializer(0.1))
+                            activation=activation)
     return layer

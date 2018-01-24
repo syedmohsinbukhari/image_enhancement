@@ -40,11 +40,11 @@ class GAN:
         self.D_z, self.D_z_ = self.discriminator(self.G_z)
 
         #Defining Loss Functions (Alternative Loss Functions just before EOF)
-        generated_flat = tf.reshape(self.G_z, [self.batch_size, -1])
-        original_flat = tf.reshape(self.X, [self.batch_size, -1])
-        self.generation_loss = -tf.reduce_sum(original_flat * tf.log(1e-8 + \
-            generated_flat) + (1-original_flat) * tf.log(1e-8 + 1 - \
-            generated_flat), 1)
+        self.G_flat = tf.reshape(self.G_z, [self.batch_size, -1])
+        self.O_flat = tf.reshape(self.X, [self.batch_size, -1])
+        self.generation_loss = -tf.reduce_sum(self.O_flat * tf.log(1e-8 + \
+            self.G_flat) + (1-self.O_flat) * tf.log(1e-8 + 1 - \
+            self.G_flat), 1)
         self.cost = tf.reduce_mean(self.generation_loss)
 
         self.D_loss=-tf.reduce_mean(tf.log(self.D_x)+tf.log(1.0 - self.D_z))
@@ -62,7 +62,7 @@ class GAN:
         self.G_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
                                                     minimize(self.G_loss, \
                                                  var_list = self.G_vars)
-        self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).\
+        self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
                                 minimize(self.cost, var_list = self.G_vars)
 
 
@@ -126,51 +126,55 @@ class GAN:
 
 
     def train(self, epochs, tf_session):
-        self.training_start_time = strftime("%d%m%Y%H%M%S", localtime())
+        self.training_start_time = strftime("%d-%m-%Y_%H-%M-%S", localtime())
 
         sess = tf_session
         sess.run(tf.global_variables_initializer())
 
         batch_size = self.batch_size
 
+        epoch_verbosity = 1
         for i in range(epochs):
+            if i%epoch_verbosity==0:
+                print('Running epoch: {}'.format(i+1))
+
             start_time = time()
 
-            data_cur = get_img_data(batch_size, 'training_file.txt',
-                                    CV_IMG_TYPE, IMG_CHN, IMG_DIM)
+            if i<10:
+                data_cur = get_img_data(batch_size, 'training_file.txt',
+                                        CV_IMG_TYPE, IMG_CHN, IMG_DIM)
+                for d in data_cur:
+                    _, generation_loss = \
+                                sess.run([self.AE_optimizer,
+                                          self.cost],
+                                         feed_dict={self.X: d[1],
+                                                    self.Z: d[0]})
 
-            for d in data_cur:
-                for k in range(1):
-                    _, D_loss_cur = sess.run([self.D_optimizer,
-                                              self.D_loss],
-                                             feed_dict={self.X: d[1],
-                                                        self.Z: d[0]})
+            if i>=10:
+                data_cur = get_img_data(batch_size, 'training_file.txt',
+                                        CV_IMG_TYPE, IMG_CHN, IMG_DIM)
 
-                for k in range(1):
-                    _, G_loss_cur = sess.run([self.G_optimizer,
-                                              self.G_loss],
-                                             feed_dict={self.Z: d[0]})
-
-                for k in range(1):
-                    _, generation_loss =  sess.run([self.AE_optimizer, \
-                                          self.cost], \
-                                          feed_dict={self.X: d[1], \
-                                                     self.Z: d[0]})
-
-                D_x, D_z = sess.run([self.D_x, self.D_z],
-                                            feed_dict={self.X: d[1],
-                                                       self.Z: d[0]})
+                for d in data_cur:
+                    _, _, D_loss, G_loss, D_x, D_z = \
+                                sess.run([self.D_optimizer,
+                                          self.G_optimizer,
+                                          self.D_loss,
+                                          self.G_loss,
+                                          self.D_x,
+                                          self.D_z],
+                                         feed_dict={self.X: d[1],
+                                                    self.Z: d[0]})
 
             time_taken = time()-start_time
-            if i%1==0:
-                print('Epoch: {}'.format(i))
+            if i%epoch_verbosity==0:
                 print('Time Taken: {}'.format(time_taken))
-                print('D_x: {0}'.format(np.mean(D_x)))
-                print('D_z: {0}'.format(np.mean(D_z)))
-                print('D_loss: {0}'.format(D_loss_cur))
-                print('G_loss: {0}'.format(G_loss_cur))
-                print('mean_generation_loss: {0}'.format(np.mean(
-                        generation_loss)))
+                if i>=10:
+                    print('D_x: {0}'.format(np.mean(D_x)))
+                    print('D_z: {0}'.format(np.mean(D_z)))
+                    print('D_loss: {0}'.format(D_loss))
+                    print('G_loss: {0}'.format(G_loss))
+                if i<10:
+                    print('mean_generation_loss: {0}'.format(generation_loss))
                 print()
 
             self.test(sess, epoch='epoch_'+str(i))
@@ -257,3 +261,26 @@ if __name__ == '__main__':
 #        self.D_loss = D_loss_real + D_loss_fake
 #        self.G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(\
 #                logits=self.D_z_logit, labels=tf.ones_like(self.D_z_logit)))
+
+
+
+#                for k in range(1):
+#                    _, D_loss = sess.run([self.D_optimizer,
+#                                              self.D_loss],
+#                                             feed_dict={self.X: d[1],
+#                                                        self.Z: d[0]})
+#
+#                for k in range(1):
+#                    _, G_loss = sess.run([self.G_optimizer,
+#                                              self.G_loss],
+#                                             feed_dict={self.Z: d[0]})
+#
+#                for k in range(1):
+#                    _, generation_loss =  sess.run([self.AE_optimizer, \
+#                                          self.cost], \
+#                                          feed_dict={self.X: d[1], \
+#                                                     self.Z: d[0]})
+#
+#                D_x, D_z = sess.run([self.D_x, self.D_z],
+#                                            feed_dict={self.X: d[1],
+#                                                       self.Z: d[0]})
