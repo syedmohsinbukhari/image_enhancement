@@ -36,8 +36,8 @@ class GAN:
 
         #Get Generator and Discriminator Outputs
         self.G_z, self.G_z_feats = self.generator(self.Z)
-        self.D_x, self.D_x_logit = self.discriminator(self.X)
-        self.D_z, self.D_z_logit = self.discriminator(self.G_z, reuse=True)
+        self.D_x, self.D_x_ = self.discriminator(self.X)
+        self.D_z, self.D_z_ = self.discriminator(self.G_z)
 
         #Defining Loss Functions (Alternative Loss Functions just before EOF)
         generated_flat = tf.reshape(self.G_z, [self.batch_size, -1])
@@ -56,7 +56,7 @@ class GAN:
         self.G_vars = [var for var in t_vars if 'G_' in var.name]
 
         #Define optimizers
-        self.D_optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).\
+        self.D_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
                                                     minimize(self.D_loss, \
                                                  var_list = self.D_vars)
         self.G_optimizer = tf.train.AdamOptimizer(learning_rate=1e-5).\
@@ -67,7 +67,7 @@ class GAN:
 
 
     def discriminator(self, x, reuse=False):
-        with tf.variable_scope("discriminator") as scope:
+        with tf.variable_scope("discriminator", reuse=tf.AUTO_REUSE) as scope:
             if reuse:
                 scope.reuse_variables()
 
@@ -83,10 +83,9 @@ class GAN:
 
             #Output
             D_dense = dense(D_pool5_flat, 2048, 'D_dense')
-            D_logits = dense(D_dense, 1, 'D_logits', activation=None)
-            D_probs = tf.nn.softmax(D_logits, name="D_probs")
+            D_prob = dense(D_dense, 1, 'D_prob', activation=tf.nn.sigmoid)
 
-            return D_probs, D_logits
+            return D_prob, D_conv5
 
 
     def generator(self, z):
@@ -140,27 +139,33 @@ class GAN:
                                     CV_IMG_TYPE, IMG_CHN, IMG_DIM)
 
             for d in data_cur:
-                for k in range(2):
-                    _, D_loss_cur, D_x = sess.run([self.D_optimizer,
-                                                   self.D_loss,
-                                                   self.D_x],
-                                                   feed_dict={self.X: d[1],
-                                                              self.Z: d[0]})
                 for k in range(1):
-                    _, G_loss_cur, D_z = sess.run([self.G_optimizer,
-                                                   self.G_loss,
-                                                   self.D_z],
-                                                   feed_dict={self.Z: d[0]})
+                    _, D_loss_cur = sess.run([self.D_optimizer,
+                                              self.D_loss],
+                                             feed_dict={self.X: d[1],
+                                                        self.Z: d[0]})
+
+                for k in range(1):
+                    _, G_loss_cur = sess.run([self.G_optimizer,
+                                              self.G_loss],
+                                             feed_dict={self.Z: d[0]})
+
 #                for k in range(1):
 #                    _, generation_loss =  sess.run([self.AE_optimizer, \
 #                                          self.cost], \
 #                                          feed_dict={self.X: d[1], \
 #                                                     self.Z: d[0]})
 
+                D_x, D_z = sess.run([self.D_x, self.D_z],
+                                            feed_dict={self.X: d[1],
+                                                       self.Z: d[0]})
+
             if i%1==0:
                 print('Epoch: {}'.format(i))
-                print('D loss: {0}\nD_x: {1}'.format(D_loss_cur, D_x))
-                print('G_loss: {0}\nD_z: {1}'.format(G_loss_cur, D_z))
+                print('D_x: {0}'.format(np.mean(D_x)))
+                print('D_z: {0}'.format(np.mean(D_z)))
+                print('D loss: {0}'.format(D_loss_cur))
+                print('G_loss: {0}'.format(G_loss_cur))
 #                print('mean_generation_loss: {0}'.format(np.mean(
 #                        generation_loss)))
                 print()
@@ -232,7 +237,7 @@ def main():
 
     with tf.Session(config=config) as sess:
       test_gan = GAN()
-      test_gan.train(epochs=50, tf_session=sess)
+      test_gan.train(epochs=100, tf_session=sess)
       test_gan.test(sess)
       sess.close()
 

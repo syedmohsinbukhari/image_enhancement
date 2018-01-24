@@ -10,11 +10,16 @@ import tensorflow as tf
 
 def conv2d(inputs, filters, kernel_size, name, strides=1,
            activation=tf.nn.leaky_relu):
-    layer = tf.layers.conv2d(inputs=inputs, filters=filters,
-                             kernel_size=kernel_size, padding='same',
-                             name=name, strides=strides,
-                             data_format='channels_first',
-                             activation=activation)
+    with tf.variable_scope(name):
+        layer = tf.layers.conv2d(inputs=inputs, filters=filters,
+                                 kernel_size=kernel_size, padding='same',
+                                 strides=strides,
+                                 data_format='channels_first',
+                                 activation=activation#,
+#                                 kernel_initializer=
+#                                 tf.truncated_normal_initializer(stddev=0.2),
+#                                 bias_initializer=tf.constant_initializer(0.1)
+                                 )
     return layer
 
 def conv2d_t(inputs, filters, kernel_size, name, strides=2,
@@ -23,7 +28,12 @@ def conv2d_t(inputs, filters, kernel_size, name, strides=2,
                                        kernel_size=kernel_size, name=name,
                                        strides=strides, padding='same',
                                        data_format='channels_first',
-                                       activation=activation)
+                                       activation=activation,
+                                       kernel_initializer=
+                                       tf.truncated_normal_initializer(
+                                               stddev=0.2),
+                                       bias_initializer=
+                                       tf.constant_initializer(0.1))
     return layer
 
 def max_pool2d(inputs, name, pool_size=2, strides=2):
@@ -34,5 +44,8 @@ def max_pool2d(inputs, name, pool_size=2, strides=2):
 
 def dense(inputs, units, name, activation=tf.nn.relu):
     layer = tf.layers.dense(inputs=inputs, units=units, name=name,
-                            activation=activation)
+                            activation=activation,
+                            kernel_initializer=
+                            tf.truncated_normal_initializer(stddev=0.2),
+                            bias_initializer=tf.constant_initializer(0.1))
     return layer
