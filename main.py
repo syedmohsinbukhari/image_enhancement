@@ -67,7 +67,7 @@ class GAN:
                                                         minimize(self.G_loss,
                                                      var_list = self.G_vars)
 
-            self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-3).\
+            self.AE_optimizer = tf.train.AdamOptimizer(learning_rate=1e-4).\
                                                         minimize(self.cost,
                                                      var_list = self.G_vars)
 
@@ -137,16 +137,14 @@ class GAN:
         return G_pic, G_features
 
 
-    def train(self, epochs, tf_session):
+    def train(self, epochs, sess):
         self.training_start_time = strftime("%d-%m-%Y_%H-%M-%S", localtime())
 
-        sess = tf_session
         sess.run(tf.global_variables_initializer())
 
         batch_size = self.batch_size
-
         epoch_verbosity = 1
-        autoencoder_epochs = 30
+        autoencoder_epochs = 10
         for i in range(epochs):
             if i%epoch_verbosity==0:
                 print('Running epoch: {}'.format(i+1))
@@ -157,10 +155,9 @@ class GAN:
                 data_cur = get_img_data(batch_size, 'training_file.txt',
                                         CV_IMG_TYPE, IMG_CHN, IMG_DIM)
                 for d in data_cur:
-                    _, generation_loss, extra = \
+                    _, generation_loss = \
                                 sess.run([self.AE_optimizer,
-                                          self.cost,
-                                          self.extra],
+                                          self.cost],
                                          feed_dict={self.X: d[1],
                                                     self.Z: d[0]})
 
@@ -169,15 +166,20 @@ class GAN:
                                         CV_IMG_TYPE, IMG_CHN, IMG_DIM)
 
                 for d in data_cur:
-                    _, _, D_loss, G_loss, D_x, D_z = \
+                    _, D_loss, D_x = \
                                 sess.run([self.D_optimizer,
-                                          self.G_optimizer,
                                           self.D_loss,
-                                          self.G_loss,
-                                          self.D_x,
-                                          self.D_z],
+                                          self.D_x],
                                          feed_dict={self.X: d[1],
                                                     self.Z: d[0]})
+
+                    for k in range(2):
+                        _, G_loss, D_z = \
+                                    sess.run([self.G_optimizer,
+                                              self.G_loss,
+                                              self.D_z],
+                                             feed_dict={self.X: d[1],
+                                                        self.Z: d[0]})
 
             time_taken = time()-start_time
             if i%epoch_verbosity==0:
@@ -188,7 +190,6 @@ class GAN:
                     print('D_loss: {0}'.format(D_loss))
                     print('G_loss: {0}'.format(G_loss))
                 else:
-                    print('features: {0}'.format(np.mean(extra)))
                     print('mean_generation_loss: {0}'.format(generation_loss))
                 print()
 
@@ -258,7 +259,7 @@ class GAN:
 def main():
     with tf.Session() as sess:
       test_gan = GAN(batch_size=64)
-      test_gan.train(epochs=30, tf_session=sess)
+      test_gan.train(epochs=100, sess=sess)
       sess.close()
 
 
